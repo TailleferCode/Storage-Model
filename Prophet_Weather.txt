@@ -1,0 +1,30 @@
+import pandas as pd
+from neuralprophet import NeuralProphet
+from matplotlib import pyplot as plt
+import pickle
+
+df = pd.read_csv(r"C:\Users\qtaillefer\Desktop\weather.csv")
+
+
+df1=df.drop(['Min','Max'],axis=1)
+print(df1.columns)
+df1['Date']=pd.to_datetime(df['Date'])
+print(df1.head)
+
+plt.plot(df1['Date'],df1['Avg'])
+plt.show()
+
+data = df1[['Date', 'Avg']]
+data.dropna(inplace=True)
+data.columns = ['ds', 'y']
+print(data.head())
+
+m = NeuralProphet()
+model = m.fit(data, freq='D', epochs=900)
+
+future = m.make_future_dataframe(data, periods=900)
+forecast = m.predict(future)
+forecast.head()
+
+
+forecast.to_csv(r"C:\Users\qtaillefer\Desktop\Dallas_weather.csv")
