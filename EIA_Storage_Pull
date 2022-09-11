@@ -1,0 +1,47 @@
+from pandas import json_normalize
+import requests
+import pandas as pd
+from sqlalchemy import create_engine, event
+from datetime import datetime
+
+# current date and time
+now = datetime.now()
+year = str(int(now.strftime("%Y"))-11)
+
+# API to data frame
+url = "https://api.eia.gov/v2/natural-gas/stor/wkly/data?api_key=*******************"
+keys = "&data[0]=value&frequency=weekly&start="+year+"-01-01"
+api_url = url+keys
+
+
+#api_url = "https://api.eia.gov/v2/natural-gas/stor/wkly/data?api_key=*******************&data[]=value"
+
+r = requests.get(api_url)
+r = json_normalize(r.json())
+Fields=['response.data']
+j=r[Fields]
+jr=j.explode('response.data')
+jr_final=pd.DataFrame(jr['response.data'].apply(pd.Series))
+
+#print(jr_final)
+df = jr_final.pivot_table(index='period', columns='series', values='value', fill_value=0).rename_axis(None, axis=1).reset_index()
+df=df.rename(columns = {"NW2_EPG0_SWO_R48_BCF":"Lower48","NW2_EPG0_SWO_R35_BCF":"Pacific","NW2_EPG0_SWO_R34_BCF":"Mountain","NW2_EPG0_SWO_R33_BCF":"South Central","NW2_EPG0_SWO_R32_BCF":"Midwest","NW2_EPG0_SWO_R31_BCF":"East","NW2_EPG0_SSO_R33_BCF":"Salt","NW2_EPG0_SNO_R33_BCF":"Nonsalt"})
+#print(df)
+
+# saving as a CSV file
+df.to_csv('EIA_Weekly.csv')
+
+#uploads data to the sql server
+def sql_upload(df, database):
+    mysql_engine = create_engine('mysql+pymysql://CHRON:chron@*****:***/****',isolation_level="AUTOCOMMIT")
+
+    @event.listens_for(mysql_engine, 'before_cursor_execute')
+    def receive_before_cursor_execute(conn,cursor,statement,params,context,executemany):
+        if executemany:
+            cursor.fast_executemany = True
+
+    df.to_sql(name = database, con = mysql_engine, if_exists = 'replace',
+        index = False, chunksize = 10000)
+
+sql_upload(df,"eia_python")
+
