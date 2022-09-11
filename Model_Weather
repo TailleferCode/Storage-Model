@@ -1,0 +1,117 @@
+# Get Libraries
+import pandas as pd
+from math import sqrt
+import matplotlib.pyplot as plt
+import seaborn as sns
+from datetime import datetime, timedelta
+from pandas import json_normalize
+import requests
+import numpy as np
+from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import mean_squared_error
+from sklearn.linear_model import Ridge, Lasso
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.model_selection import RepeatedKFold
+from sklearn.linear_model import LassoCV
+from numpy import arange
+
+
+# Get Weather data
+df3 = pd.read_csv(r"C:\Users\qtaillefer\Desktop\Personal\WDD.csv")
+df3 = pd.DataFrame(df3)
+delta3= timedelta (days=3)
+df3['date'] = pd.to_datetime(df3['DATES'])
+df3['Week'] = (df3['date']+delta3).dt.isocalendar().week
+df3['date'] = pd.to_datetime(df3['date'])
+df3['Year'] = df3['date'].dt.year
+df3['Month'] = df3['date'].dt.month
+#print(df3)
+
+# Get Weather forecast data
+df1 = pd.read_csv(r"C:\Users\qtaillefer\Desktop\Personal\WDDForecast1.csv")
+df1 = pd.DataFrame(df1)
+delta1= timedelta (days=3)
+df1['date'] = pd.to_datetime(df1['DATES'])
+df1['Week'] = (df1['date']+delta1).dt.isocalendar().week
+df1['date'] = pd.to_datetime(df1['date'])
+df1['Year'] = df1['date'].dt.year
+df1['Month'] = df1['date'].dt.month
+
+#Get EIA
+#3 get EIA data
+now = datetime.now()
+year = str(int(now.strftime("%Y"))-15)
+url = "https://api.eia.gov/v2/natural-gas/stor/wkly/data?api_key=*********"
+keys = "&data[0]=value&frequency=weekly&start="+year+"-01-01"
+api_url = url+keys
+r4 = requests.get(api_url)
+r4 = json_normalize(r4.json())
+Fields=['response.data']
+j=r4[Fields]
+jr=j.explode('response.data')
+jr_final=pd.DataFrame(jr['response.data'].apply(pd.Series))
+df4 = jr_final.pivot_table(index='period', columns='series', values='value', fill_value=0).rename_axis(None, axis=1).reset_index()
+df4=df4.rename(columns = {"NW2_EPG0_SWO_R48_BCF":"Lower48","NW2_EPG0_SWO_R35_BCF":"Pacific","NW2_EPG0_SWO_R34_BCF":"Mountain","NW2_EPG0_SWO_R33_BCF":"South Central","NW2_EPG0_SWO_R32_BCF":"Midwest","NW2_EPG0_SWO_R31_BCF":"East","NW2_EPG0_SSO_R33_BCF":"Salt","NW2_EPG0_SNO_R33_BCF":"Nonsalt"})
+delta4= timedelta (days=3)
+df4['date'] = pd.to_datetime(df4['period'])
+df4['Week'] = (df4['date']+delta4).dt.isocalendar().week
+df4['date'] = pd.to_datetime(df4['date'])
+df4['Year'] = df4['date'].dt.year
+df4['Month'] = df4['date'].dt.month
+df4['Diffl48']=df4['Lower48'].diff()
+print(df4)
+
+#Make Pivot
+a4_pivot = pd.pivot_table(df4, values='Diffl48', index=['Year','Week'], aggfunc=np.average)
+a3_pivot = pd.pivot_table(df3, index=['Year','Week'], aggfunc=np.average)
+a1_pivot = pd.pivot_table(df1, index=['Year','Week'], aggfunc=np.average)
+
+print(a1_pivot)
+def remove_outlier(df_in, col_name):
+   q1 = df_in[col_name].quantile(0.25)
+   q3 = df_in[col_name].quantile(0.75)
+   iqr = q3-q1 #Interquartile range
+   fence_low  = q1-1.5*iqr
+   fence_high = q3+1.5*iqr
+   df_out = df_in.loc[(df_in[col_name] > fence_low) & (df_in[col_name] < fence_high)]
+   return df_out
+
+a4_pivot= remove_outlier(a4_pivot,'Diffl48')
+
+TT= pd.merge(a3_pivot, a4_pivot, on=['Year','Week'])
+#print(TT.corr())
+
+#Test Various Methods
+X = TT[['10Y_ELEC_CDD','10Y_NG_HDD','10Y_POP_CDD','30Y_ELEC_CDD','30Y_NG_HDD','30Y_POP_CDD','ELEC_CDD','NG_HDD','NG_HDD','POP_CDD','Month']]
+X_Test = a1_pivot[['10Y_ELEC_CDD','10Y_NG_HDD','10Y_POP_CDD','30Y_ELEC_CDD','30Y_NG_HDD','30Y_POP_CDD','ELEC_CDD','NG_HDD','NG_HDD','POP_CDD','Month']]
+print(X)
+#X = TT[['10Y_NG_HDD','30Y_NG_HDD','NG_HDD']]
+y = TT['Diffl48']
+X_train,X_test,y_train,y_test = train_test_split(X,y,test_size=0.45,random_state=1)
+#clf = RandomForestRegressor(n_estimators=100)
+#cv = RepeatedKFold(n_splits=10, n_repeats=4, random_state=1)
+#clf= LassoCV(alphas=arange(0, 1, 0.01), cv=cv, n_jobs=-1)
+clf= LinearRegression()
+#clf= Ridge(alpha=100)
+clf.fit(X_train,y_train)
+y_pred=clf.predict(X_test)
+y_pred=y_pred.astype(float)
+
+#Check accuracy
+
+sns.regplot(y_test,y_pred,ci=None)
+plt.show()
+
+print(sqrt(mean_squared_error(y_test,y_pred)))
+
+def mae(y_true, predictions):
+    y_true, predictions = np.array(y_true), np.array(predictions)
+    return np.mean(np.abs(y_true - predictions))
+
+print(mae(y_test,y_pred))
+print(clf.score(X_test,y_test))
+
+pred=clf.predict(X_Test)
+
+print(pred)
